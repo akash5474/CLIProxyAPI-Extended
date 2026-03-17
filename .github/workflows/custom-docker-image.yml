@@ -34,7 +34,20 @@ jobs:
           echo "VERSION=${safe_ref}" >> $GITHUB_ENV
           echo COMMIT=`git rev-parse --short HEAD` >> $GITHUB_ENV
           echo BUILD_DATE=`date -u +%Y-%m-%dT%H:%M:%SZ` >> $GITHUB_ENV
-      - name: Build and push (amd64)
+      - name: Build and push version tag (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ env.COMMIT }}
+            BUILD_DATE=${{ env.BUILD_DATE }}
+          tags: |
+            ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}-amd64
+      - name: Build and push latest tag (amd64)
+        if: github.ref_name == 'custom'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -46,7 +59,6 @@ jobs:
             BUILD_DATE=${{ env.BUILD_DATE }}
           tags: |
             ${{ env.DOCKERHUB_REPO }}:latest-amd64
-            ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}-amd64
 
   docker_arm64:
     if: false
@@ -108,16 +120,19 @@ jobs:
           echo "VERSION=${safe_ref}" >> $GITHUB_ENV
           echo COMMIT=`git rev-parse --short HEAD` >> $GITHUB_ENV
           echo BUILD_DATE=`date -u +%Y-%m-%dT%H:%M:%SZ` >> $GITHUB_ENV
-      - name: Create and push multi-arch manifests
+      - name: Create and push version manifest
+        run: |
+          docker buildx imagetools create \
+            --tag "${DOCKERHUB_REPO}:${VERSION}" \
+            "${DOCKERHUB_REPO}:${VERSION}-amd64" # \
+            # "${DOCKERHUB_REPO}:${VERSION}-arm64"
+      - name: Create and push latest manifest
+        if: github.ref_name == 'custom'
         run: |
           docker buildx imagetools create \
             --tag "${DOCKERHUB_REPO}:latest" \
             "${DOCKERHUB_REPO}:latest-amd64" # \
             # "${DOCKERHUB_REPO}:latest-arm64"
-          docker buildx imagetools create \
-            --tag "${DOCKERHUB_REPO}:${VERSION}" \
-            "${DOCKERHUB_REPO}:${VERSION}-amd64" #\
-            # "${DOCKERHUB_REPO}:${VERSION}-arm64"
       - name: Cleanup temporary tags
         continue-on-error: true
         env:
@@ -149,7 +164,9 @@ jobs:
             return 0
           }
 
-          delete_tag "latest-amd64"
-          # delete_tag "latest-arm64"
+          if [ "${GITHUB_REF_NAME}" = "custom" ]; then
+            delete_tag "latest-amd64"
+            # delete_tag "latest-arm64"
+          fi
           delete_tag "${VERSION}-amd64"
           # delete_tag "${VERSION}-arm64"
