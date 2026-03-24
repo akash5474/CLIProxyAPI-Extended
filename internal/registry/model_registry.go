@@ -1138,8 +1138,27 @@ func (r *ModelRegistry) convertModelToMap(model *ModelInfo, handlerType string) 
 		if model.MaxCompletionTokens > 0 {
 			result["max_completion_tokens"] = model.MaxCompletionTokens
 		}
+		if model.InputTokenLimit > 0 {
+			result["inputTokenLimit"] = model.InputTokenLimit
+		}
+		if model.OutputTokenLimit > 0 {
+			result["outputTokenLimit"] = model.OutputTokenLimit
+		}
 		if len(model.SupportedParameters) > 0 {
 			result["supported_parameters"] = append([]string(nil), model.SupportedParameters...)
+		}
+		if len(model.SupportedInputModalities) > 0 {
+			result["supportedInputModalities"] = append([]string(nil), model.SupportedInputModalities...)
+		}
+		if len(model.SupportedOutputModalities) > 0 {
+			result["supportedOutputModalities"] = append([]string(nil), model.SupportedOutputModalities...)
+		}
+		if model.Thinking != nil {
+			copyThinking := *model.Thinking
+			if len(model.Thinking.Levels) > 0 {
+				copyThinking.Levels = append([]string(nil), model.Thinking.Levels...)
+			}
+			result["thinking"] = &copyThinking
 		}
 		return result
 
