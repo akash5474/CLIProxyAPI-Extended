@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -59,33 +60,9 @@ func (h *OpenAIAPIHandler) Models() []map[string]any {
 // It returns a list of available AI models with their capabilities
 // and specifications in OpenAI-compatible format.
 func (h *OpenAIAPIHandler) OpenAIModels(c *gin.Context) {
-	// Get all available models
-	allModels := h.Models()
-
-	// Filter to only include the 4 required fields: id, object, created, owned_by
-	filteredModels := make([]map[string]any, len(allModels))
-	for i, model := range allModels {
-		filteredModel := map[string]any{
-			"id":     model["id"],
-			"object": model["object"],
-		}
-
-		// Add created field if it exists
-		if created, exists := model["created"]; exists {
-			filteredModel["created"] = created
-		}
-
-		// Add owned_by field if it exists
-		if ownedBy, exists := model["owned_by"]; exists {
-			filteredModel["owned_by"] = ownedBy
-		}
-
-		filteredModels[i] = filteredModel
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   filteredModels,
+		"data":   h.Models(),
 	})
 }
 
@@ -126,6 +103,78 @@ func (h *OpenAIAPIHandler) ChatCompletions(c *gin.Context) {
 		h.handleNonStreamingResponse(c, rawJSON)
 	}
 
+}
+
+// Embeddings handles the /v1/embeddings endpoint.
+func (h *OpenAIAPIHandler) Embeddings(c *gin.Context) {
+	c.Header("Content-Type", "application/json")
+
+	rawJSON, err := c.GetRawData()
+	if err != nil || !json.Valid(rawJSON) {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: "Invalid request body",
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	modelName := strings.TrimSpace(gjson.GetBytes(rawJSON, "model").String())
+	if modelName == "" {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: "model is required",
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	if !gjson.GetBytes(rawJSON, "input").Exists() {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: "input is required",
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	// embeddings are non-streaming
+	if gjson.GetBytes(rawJSON, "stream").Bool() {
+		c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
+			Error: handlers.ErrorDetail{
+				Message: "stream is not supported for embeddings",
+				Type:    "invalid_request_error",
+			},
+		})
+		return
+	}
+
+	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
+
+	resp, upstreamHeaders, errMsg := h.ExecuteWithAuthManager(
+		cliCtx,
+		h.HandlerType(),
+		modelName,
+		rawJSON,
+		"embeddings",
+	)
+
+	stopKeepAlive()
+
+	if errMsg != nil {
+		h.WriteErrorResponse(c, errMsg)
+		cliCancel(errMsg.Error)
+		return
+	}
+
+	handlers.WriteUpstreamHeaders(c.Writer.Header(), upstreamHeaders)
+	_, _ = c.Writer.Write(resp)
+
+	cliCancel()
 }
 
 // shouldTreatAsResponsesFormat detects OpenAI Responses-style payloads that are

@@ -85,9 +85,12 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 	from := opts.SourceFormat
 	to := sdktranslator.FromString("openai")
 	endpoint := "/chat/completions"
-	if opts.Alt == "responses/compact" {
+	switch opts.Alt {
+	case "responses/compact":
 		to = sdktranslator.FromString("openai-response")
 		endpoint = "/responses/compact"
+	case "embeddings":
+		endpoint = "/embeddings"
 	}
 	originalPayloadSource := req.Payload
 	if len(opts.OriginalRequest) > 0 {
@@ -104,9 +107,12 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 		}
 	}
 
-	translated, err = thinking.ApplyThinking(translated, req.Model, from.String(), to.String(), e.Identifier())
-	if err != nil {
-		return resp, err
+	// skip thinking for embeddings
+	if opts.Alt != "embeddings" {
+		translated, err = thinking.ApplyThinking(translated, req.Model, from.String(), to.String(), e.Identifier())
+		if err != nil {
+			return resp, err
+		}
 	}
 
 	url := strings.TrimSuffix(baseURL, "/") + endpoint
@@ -169,7 +175,14 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 	helps.AppendAPIResponseChunk(ctx, e.cfg, body)
 	reporter.Publish(ctx, helps.ParseOpenAIUsage(body))
 	// Ensure we at least record the request even if upstream doesn't return usage
-	reporter.EnsurePublished(ctx)
+	reporter.ensurePublished(ctx)
+	// embeddings: pass-through response
+	if opts.Alt == "embeddings" {
+		return cliproxyexecutor.Response{
+			Payload: body,
+			Headers: httpResp.Header.Clone(),
+		}, nil
+	}
 	// Translate response back to source format when needed
 	var param any
 	out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, translated, body, &param)
