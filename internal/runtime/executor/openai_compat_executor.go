@@ -175,7 +175,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 	helps.AppendAPIResponseChunk(ctx, e.cfg, body)
 	reporter.Publish(ctx, helps.ParseOpenAIUsage(body))
 	// Ensure we at least record the request even if upstream doesn't return usage
-	reporter.ensurePublished(ctx)
+	reporter.EnsurePublished(ctx)
 	// embeddings: pass-through response
 	if opts.Alt == "embeddings" {
 		return cliproxyexecutor.Response{
